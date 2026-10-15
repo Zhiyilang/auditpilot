@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: auditpilot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: AUDITPILOT_LLM_BASE_URL
+        sync: false
+      - key: AUDITPILOT_LLM_API_KEY
+        sync: false
+      - key: AUDITPILOT_LLM_MODEL
+        sync: false
