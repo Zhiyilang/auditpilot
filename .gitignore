@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+auditpilot-report.html
+report.html
+out/
+.venv/
