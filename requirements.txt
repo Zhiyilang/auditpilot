@@ -1,0 +1,3 @@
+# The AuditPilot engine itself is pure Python standard library (zero deps).
+# These are only for the Gradio web app / HF Space.
+gradio>=6.0
