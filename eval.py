@@ -12,6 +12,29 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+def runpy(args, **kw):
+    """Run a child interpreter over a deterministic UTF-8 pipe.
+
+    Without this, the suite crashes on a cp936 Windows locale: the child
+    emits UTF-8 bytes while the parent's reader thread decodes with the
+    locale codec, the reader dies with UnicodeDecodeError, and stdout
+    silently becomes None -- surfacing later as a confusing TypeError.
+    """
+    import os
+    env = dict(os.environ)
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    kw.setdefault("capture_output", True)
+    kw.setdefault("text", True)
+    kw.setdefault("encoding", "utf-8")
+    kw.setdefault("errors", "replace")
+    kw.setdefault("timeout", 180)
+    kw.setdefault("cwd", ROOT)
+    kw.setdefault("env", env)
+    return subprocess.run([sys.executable] + list(args), **kw)
+
+
 sys.path.insert(0, str(ROOT))
 
 from auditpilot.agent import audit_statement, audit_to_html, build_savings_plan, risk_score
@@ -267,8 +290,7 @@ MCP_MSGS = [
      "params": {"name": "nope", "arguments": {}}},
 ]
 
-proc = subprocess.run(
-    [sys.executable, "-m", "auditpilot.mcp_server"],
+proc = runpy(["-m", "auditpilot.mcp_server"],
     input="\n".join(json.dumps(m) for m in MCP_MSGS) + "\n",
     capture_output=True, text=True, timeout=120, cwd=str(ROOT),
 )
@@ -302,8 +324,7 @@ check("mcp: audit_statement clean statement score 0",
 err = by_id.get(5, {})
 check("mcp: unknown tool -> -32602", err.get("error", {}).get("code") == -32602)
 
-bad = subprocess.run(
-    [sys.executable, "-m", "auditpilot.mcp_server"],
+bad = runpy(["-m", "auditpilot.mcp_server"],
     input="{not json\n", capture_output=True, text=True, timeout=60, cwd=str(ROOT),
 )
 lines = [json.loads(ln) for ln in bad.stdout.splitlines() if ln.strip()]
@@ -312,8 +333,7 @@ check("mcp: malformed json -> -32700",
 
 # ------------------------------------------------------------------ E. CLI
 section("E. CLI")
-cli = subprocess.run(
-    [sys.executable, "-m", "auditpilot", "audit", "examples/statement_messy.csv", "--json"],
+cli = runpy(["-m", "auditpilot", "audit", "examples/statement_messy.csv", "--json"],
     capture_output=True, text=True, timeout=120, cwd=str(ROOT),
 )
 check("cli audit --json exits 0", cli.returncode == 0, cli.stderr[-300:])
@@ -325,8 +345,7 @@ except Exception as exc:  # noqa: BLE001
     print("   ", exc)
 check("cli --json prints the receipt", ok)
 
-demo = subprocess.run(
-    [sys.executable, "-m", "auditpilot", "demo"],
+demo = runpy(["-m", "auditpilot", "demo"],
     capture_output=True, text=True, timeout=180, cwd=str(ROOT),
 )
 check("cli demo exits 0", demo.returncode == 0, demo.stderr[-300:])
