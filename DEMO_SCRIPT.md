@@ -1,5 +1,9 @@
 # Demo video script (target: under 3 minutes, English)
 
+> 🎬 **Finished video already produced**: `auditpilot/auditpilot_demo.mp4`
+> (29.0s, English terminal recording + captions, all output really executed) —
+> upload as-is, or use the storyboard below for a voiced re-record.
+
 Record at 1920×1080. Browser zoom 110%. Have two windows ready: the AuditPilot
 web app and a terminal. The bundled demo statement means you never need to show
 real financial data.
