@@ -16,8 +16,9 @@ tags:
 
 # 🔍 AuditPilot — recurring-charge forensic auditor
 
-**Find the subscriptions you forgot, the price hikes you missed, and the
-duplicate charges nobody caught — from a bank statement, 100% offline.**
+**Find the subscriptions you forgot, the price hikes you missed, the duplicate
+charges nobody caught, and the fees you never saw itemized — from a bank
+statement, 100% offline.**
 
 AuditPilot reads a bank or credit-card statement (CSV or pasted text) and runs
 a six-stage agent loop over it:
@@ -37,9 +38,11 @@ data of yours is ever needed.
 | `detect_price_changes` | Netflix $15.99 → $17.99 on 2026-04-03 (+12.5%, +$24.00/yr) — with a persistence rule so seasonal bills are never mistaken for hikes |
 | `detect_duplicates` | DoorDash $24.50 ×2 on the same day — recover $24.50 |
 | `detect_trials` | Spotify $1.00 → $11.99 — a trial that converted |
+| `detect_fees` | Overdraft 3× = $105.00 (~$430/yr at this rate, avoidable); ATM and FX fees itemized with an avoidable/informational verdict |
+| `detect_creep` | Cloud Sync $12.00 → $13.99 in 4 sub-5% steps (+16.6%) — gradual hikes that never trip a threshold alert |
 
 Every finding cites its source line. The leakage score
-(`min(100, 35×duplicates + 12×price_changes + 8×trial_conversions)`) is public
+(`min(100, 35×duplicates + 12×price_changes + 8×trial_conversions + 6×avoidable_fee_categories)`) is public
 and reproducible. Outputs include a monthly/annual recurring total, money
 recoverable now, potential annual savings, an ordered savings plan, and a
 self-contained HTML report you can email to an accountant.
