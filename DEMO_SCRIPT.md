@@ -12,9 +12,10 @@ real financial data.
 
 ## 0:00–0:20 — Hook
 
-> "This statement has 75 transactions. Somewhere in it are six subscriptions,
-> two price hikes, a duplicated charge, and a free trial that converted.
-> Finding them by eye takes an hour. AuditPilot does it in under a second —
+> "This statement has 85 transactions. Somewhere in it are seven subscriptions,
+> two price hikes, a duplicated charge, a free trial that converted, three
+> overdraft fees, and a subscription that raised its price 4% four times in a
+> row. Finding them by eye takes an hour. AuditPilot does it in under a second —
 > offline, because your statement is nobody else's business."
 
 Screen: the messy example statement scrolling slowly in a text editor.
@@ -24,14 +25,17 @@ Screen: the messy example statement scrolling slowly in a text editor.
 Screen: the web app.
 
 1. Click **“Load demo statement & audit”**.
-2. Walk the summary metrics: `$161.27/month recurring`, `$24.50 recoverable
-   now`, `$48/yr potential savings`, `leakage score 67/100 HIGH`.
+2. Walk the summary metrics: `$175.26/month recurring`, `$24.50 recoverable
+   now`, `$505.69/yr potential savings`, `leakage score 79/100 CRITICAL`.
 3. Subscriptions tab: point at Planet Fitness, the weekly coffee converted to
    $22.75/month, the annual cloud backup at $8.25/month equivalent.
 4. Price changes tab: Netflix $15.99 → $17.99 → $19.99, dates and annual impact.
 5. Duplicate charges tab: DoorDash $24.50 twice on August 14 — "that's a
    chargeback".
 6. Trial tab: Spotify $1 → $11.99.
+7. Fees tab: three overdrafts, $105, avoidable — "money out, no service back".
+8. Price creep tab: Cloud Sync $12.00 → $13.99 in four sub-5% steps — "no
+   single hike alert would ever fire; the total is +16.6%".
 
 > "Every number here cites the line it came from. Nothing is inferred."
 
@@ -68,9 +72,11 @@ Screen: terminal.
 python eval.py
 ```
 
-> "Eighty-two assertions, all passing: every detector has negative tests — a
-one-off bill spike is not a price hike, two percent jitter is not a price hike.
-And it's pure standard library: no pip install, no network, no key."
+> "One hundred assertions, all passing: every detector has negative tests — a
+one-off bill spike is not a price hike, two percent jitter is not a price
+hike, a price that dips mid-sequence is not a creep, a single fee is not
+extrapolated to a yearly rate. And it's pure standard library: no pip
+install, no network, no key."
 
 ## 2:40–3:00 — Close
 
@@ -85,6 +91,6 @@ Screen: the HTML report open in a browser tab (download it during the demo).
 - [ ] One click produces the full report (demo button — don't upload anything)
 - [ ] Zoom in on the two Netflix price hikes and the DoorDash duplicate
 - [ ] Show the trace tab and one `evidence` array in the JSON receipt
-- [ ] `python eval.py` tail visible: `RESULT: 85 passed, 0 failed`
+- [ ] `python eval.py` tail visible: `RESULT: 100 passed, 0 failed`
 - [ ] Audio: plain English, no filler; total runtime under 3 minutes
 - [ ] Export 1080p, upload to YouTube, set visibility Public
