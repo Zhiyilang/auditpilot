@@ -60,10 +60,15 @@ $hikes_table
 $dups_table
 <h2>Trial conversions ($trial_count)</h2>
 $trials_table
+<h2>Bank &amp; processing fees ($fee_count)</h2>
+$fees_table
+<h2>Price creep ($creep_count)</h2>
+$creeps_table
 <h2>Savings plan</h2>
 $plan_table
 <div class="note">Every finding cites its source line in the original statement.
-Risk score = min(100, 35 x duplicates + 12 x price changes + 8 x trial conversions).
+Risk score = min(100, 35 x duplicates + 12 x price changes + 8 x trial conversions
++ 6 x avoidable fee categories).
 AuditPilot is deterministic and offline; amounts are read, never inferred.</div>
 </div></body></html>""")
 
@@ -118,6 +123,8 @@ def build_receipt(audit: dict, generated_at: str) -> dict:
         "price_hikes": audit["price_hikes"],
         "duplicates": audit["duplicates"],
         "trials": audit["trials"],
+        "fees": audit.get("fees", []),
+        "creep": audit.get("creep", []),
         "savings_plan": audit["savings_plan"],
         "explanation": audit["explanation"],
         "trace": audit["trace"],
@@ -169,6 +176,29 @@ def render_html(receipt: dict) -> str:
         )
         for t in receipt["trials"]
     ]
+    fees_rows = [
+        (
+            _esc(f["merchant"]),
+            f["category"].replace("_", " "),
+            f"{f['count']}x",
+            _money(f["total"]),
+            _money(f["annualized"]),
+            "avoidable" if f["avoidable"] else "informational",
+            _evidence_cell(f["evidence"], 3),
+        )
+        for f in receipt.get("fees", [])
+    ]
+    creeps_rows = [
+        (
+            _esc(c["merchant"]),
+            f"{_money(c['from_amount'])} &rarr; {_money(c['to_amount'])}",
+            f"{c['step_count']} steps",
+            f"+{c['total_pct']}%",
+            _money(c["annual_delta"]),
+            _evidence_cell(c["evidence"], 3),
+        )
+        for c in receipt.get("creep", [])
+    ]
     plan_rows = [
         (
             _esc(a["action"].replace("_", " ")),
@@ -207,6 +237,15 @@ def render_html(receipt: dict) -> str:
         trial_count=len(receipt["trials"]),
         trials_table=_rows(
             ["merchant", "trial", "full price", "converted", "evidence"], trials_rows
+        ),
+        fee_count=len(receipt.get("fees", [])),
+        fees_table=_rows(
+            ["merchant", "category", "times", "total", "at this rate", "kind", "evidence"],
+            fees_rows,
+        ),
+        creep_count=len(receipt.get("creep", [])),
+        creeps_table=_rows(
+            ["merchant", "drift", "steps", "total", "/year", "evidence"], creeps_rows
         ),
         plan_table=_rows(
             ["action", "merchant", "save now", "save / year", "detail"], plan_rows
