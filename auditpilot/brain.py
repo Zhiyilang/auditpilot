@@ -29,6 +29,8 @@ class OfflineBrain:
         hikes = summary["price_hikes"]
         dups = summary["duplicates"]
         trials = summary["trials"]
+        fees = summary.get("fees", [])
+        creep = summary.get("creep", [])
         monthly = summary["monthly_total"]
 
         parts = []
@@ -59,8 +61,24 @@ class OfflineBrain:
             parts.append(
                 f"{len(trials)} free-trial conversion(s) detected — verify you still use them."
             )
-        if not hikes and not dups and not trials:
-            parts.append("No price hikes, duplicates, or trial conversions found. Clean statement.")
+        avoidable = [f for f in fees if f.get("avoidable")]
+        if avoidable:
+            total = sum(f["total"] for f in avoidable)
+            worst = max(avoidable, key=lambda f: f["total"])
+            parts.append(
+                f"{len(avoidable)} avoidable fee categor{'y' if len(avoidable) == 1 else 'ies'} "
+                f"cost {_fmt(total)} in this window (worst: {worst['category'].replace('_', ' ')}, "
+                f"{worst['count']}x) — money out with no service on the other side."
+            )
+        if creep:
+            worst = max(creep, key=lambda c: c["annual_delta"])
+            parts.append(
+                f"{worst['merchant']} crept from {_fmt(worst['from_amount'])} to "
+                f"{_fmt(worst['to_amount'])} in {worst['step_count']} sub-5% steps "
+                f"(+{worst['total_pct']}%) — no single hike alert would ever fire."
+            )
+        if not hikes and not dups and not trials and not avoidable and not creep:
+            parts.append("No price hikes, duplicates, trial conversions, fees, or creep found. Clean statement.")
         parts.append(
             "Everything above was computed locally; your statement never left this machine."
         )
