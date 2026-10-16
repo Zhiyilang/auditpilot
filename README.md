@@ -14,7 +14,7 @@ PERCEIVE ──► PARSE ──► DETECT ──► PLAN ──► EXPLAIN ─�
 |---|---|
 | PERCEIVE | statement text received (file upload or paste) |
 | PARSE | header/BOM/column inference → transactions; unparseable rows counted, never guessed |
-| DETECT | 4 detectors run on the charge set (see below) |
+| DETECT | 6 detectors run on the charge set (see below) |
 | PLAN | findings → ordered, grounded savings actions |
 | EXPLAIN | deterministic narrator (+ optional LLM polish) |
 | RECEIPT | JSON receipt + self-contained HTML report |
@@ -32,13 +32,15 @@ triggered it. Nothing is inferred that isn't in the statement.
 | `detect_price_changes` | `Netflix` $15.99 → $17.99 on 2026-04-03 (+12.5%, +$24.00/yr) |
 | `detect_duplicates` | `Doordash` $24.50 ×2 on the same day — recover $24.50 |
 | `detect_trials` | `Spotify` $1.00 → $11.99 on 2026-01-28 — a trial that converted |
+| `detect_fees` | `Overdraft Fee` 3× = $105.00 (~$430/yr at this rate, avoidable) |
+| `detect_creep` | `Cloud Sync` $12.00 → $13.99 in 4 sub-5% steps (+16.6%) — no single hike alert would ever fire |
 
 Outputs per audit:
 
 - **monthly / annual recurring total** (weekly bills converted to a monthly equivalent)
 - **recoverable now** (duplicate charges)
 - **potential annual savings** (price hikes)
-- **leakage score** `min(100, 35×duplicates + 12×price_changes + 8×trial_conversions)`,
+- **leakage score** `min(100, 35×duplicates + 12×price_changes + 8×trial_conversions + 6×avoidable_fee_categories)`,
   graded LOW / MODERATE / HIGH / CRITICAL — public formula, reproducible
 - an ordered **savings plan** (dispute → review → check → audit)
 - a **shareable HTML report** (single file, no external assets, no JS)
@@ -51,19 +53,26 @@ run it and you get, deterministically:
 ```
 $ python -m auditpilot audit examples/statement_messy.csv
 
-AuditPilot — 75 transactions (1 rows skipped, mode=csv)
-  recurring/month : $161.27  ($1,935.24/year)
+AuditPilot — 85 transactions (1 rows skipped, mode=csv)
+  recurring/month : $175.26  ($2,103.12/year)
   recoverable now : $24.50
-  potential savings/yr: $48.00
-  leakage score   : 67/100 (HIGH)
+  potential savings/yr: $505.69
+  leakage score   : 79/100 (CRITICAL)
 
   [SUB]  Planet Fitness  monthly  $39.99  ($39.99/mo, 9x)
   [SUB]  Netflix         monthly  $19.99  ($19.99/mo, 9x)
+  [SUB]  Cloud Sync      monthly  $13.99  ($13.99/mo, 5x)
   [HIKE] Netflix  $15.99 -> $17.99 (+12.5%) since 2026-04-03 (+$24.00/yr)
   [HIKE] Netflix  $17.99 -> $19.99 (+11.1%) since 2026-07-03 (+$24.00/yr)
   [DUP]  Doordash Burger $24.50 x2 (HIGH) — recover $24.50
   [TRIA] Spotify  $1.00 -> $11.99 on 2026-01-28
+  [FEE]  overdraft  3x $105.00 (~$430.38/yr, avoidable)
+  [CREEP] Cloud Sync $12.00 -> $13.99 in 4 sub-5% steps (+16.6%, +$23.81/yr)
 ```
+
+The two `[CREEP]` / `[FEE]` lines are the point: a subscription that raises its
+price 4% four times never trips a "price hike" alert, and overdraft fees are
+money out with no service on the other side of the ledger.
 
 `examples/statement_clean.csv` is the negative control: constant rent/phone/internet,
 zero findings, score 0.
@@ -132,29 +141,30 @@ Cursor, or any agent at either one. See `DEPLOY.md`.
 ## Self-verification
 
 ```bash
-python eval.py        # 83 assertions
+python eval.py        # 100 assertions
 ```
 
 Covers: parsing (CSV / headerless / debit-credit / pasted / BOM / empty), every
 detector (positive **and** negative cases — a one-off bill spike is *not* a price
-hike, 2% jitter is *not* a price hike, a variable utility is *not* a hike), the
-agent loop, receipt structure, HTML report hygiene (no script tags, no external
-assets), the stdio MCP server via a **real subprocess** (initialize → tools/list
-→ tools/call → unknown tool → malformed JSON), and the CLI.
+hike, 2% jitter is *not* a price hike, a variable utility is *not* a hike, a
+price that dips mid-sequence is *not* a creep, a single fee is *not* extrapolated
+to a yearly rate), the agent loop, receipt structure, HTML report hygiene (no
+script tags, no external assets), the stdio MCP server via a **real subprocess**
+(initialize → tools/list → tools/call → unknown tool → malformed JSON), and the CLI.
 
 ## Project layout
 
 ```
 auditpilot/
   statement.py     parsing + merchant normalization
-  detectors.py     recurring / price-change / duplicate / trial detectors
+  detectors.py     recurring / price-change / duplicate / trial / fees / creep
   brain.py         offline narrator + optional OpenAI-compatible polish
   agent.py         the 6-stage loop, savings plan, risk score
   receipts.py      JSON receipt + self-contained HTML report
   mcp_server.py    zero-dependency stdio MCP server (spec 2025-11-25)
   cli.py           audit / demo / mcp subcommands
 app.py             Gradio 6 web app (also an MCP server via launch(mcp_server=True))
-eval.py            82-assertion suite
+eval.py            100-assertion suite
 examples/          messy (planted problems) + clean (negative control) statements
 ```
 
