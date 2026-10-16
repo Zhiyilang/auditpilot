@@ -54,6 +54,14 @@ def cmd_audit(args) -> int:
         for t in r["trials"]:
             print(f"  [TRIA] {t['merchant']:<24} ${t['trial_amount']:.2f} -> "
                   f"${t['full_amount']:.2f} on {t['converted_on']}")
+        for f in r.get("fees", []):
+            kind = "avoidable" if f["avoidable"] else "informational"
+            print(f"  [FEE]  {f['category'].replace('_', ' '):<24} "
+                  f"{f['count']}x ${f['total']:>8.2f}  (~${f['annualized']:.2f}/yr, {kind})")
+        for c in r.get("creep", []):
+            print(f"  [CREEP]{c['merchant']:<24} ${c['from_amount']:.2f} -> "
+                  f"${c['to_amount']:.2f} in {c['step_count']} sub-5% steps "
+                  f"(+{c['total_pct']}%, +${c['annual_delta']:.2f}/yr)")
     if args.html:
         Path(args.html).write_text(audit_to_html(audit), encoding="utf-8")
         print(f"\nHTML report written to {args.html}", file=sys.stderr)
