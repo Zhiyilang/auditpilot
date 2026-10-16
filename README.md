@@ -132,7 +132,7 @@ Cursor, or any agent at either one. See `DEPLOY.md`.
 ## Self-verification
 
 ```bash
-python eval.py        # 85 assertions
+python eval.py        # 83 assertions
 ```
 
 Covers: parsing (CSV / headerless / debit-credit / pasted / BOM / empty), every
