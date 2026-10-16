@@ -39,7 +39,9 @@ sys.path.insert(0, str(ROOT))
 
 from auditpilot.agent import audit_statement, audit_to_html, build_savings_plan, risk_score
 from auditpilot.detectors import (
+    detect_creep,
     detect_duplicates,
+    detect_fees,
     detect_price_changes,
     detect_recurring,
     detect_trials,
@@ -80,7 +82,7 @@ clean = parse_statement(CLEAN)
 section("A. statement parsing")
 check("csv mode detected", messy.mode == "csv", messy.mode)
 check("pasted mode detected", pasted.mode == "text", pasted.mode)
-check("csv parses 75 transactions", len(messy.transactions) == 75,
+check("csv parses 85 transactions", len(messy.transactions) == 85,
       f"got {len(messy.transactions)}")
 check("bad date row skipped", messy.skipped == 1, f"got {messy.skipped}")
 check("charge direction negative (debits)", messy.charge_sign == -1)
@@ -149,7 +151,7 @@ section("B. detectors (messy example)")
 charges = messy.charges()
 recurring = detect_recurring(charges)
 by_merchant = {r["merchant_key"]: r for r in recurring}
-check("6 recurring merchants found", len(recurring) == 6,
+check("7 recurring merchants found", len(recurring) == 7,
       f"got {[r['merchant_key'] for r in recurring]}")
 check("NETFLIX monthly, latest 19.99",
       by_merchant.get("NETFLIX", {}).get("cadence") == "monthly"
@@ -223,18 +225,76 @@ check("clean: no trials", detect_trials(c_charges) == [])
 check("clean: salary not a subscription",
       not any(r["merchant_key"] == "SALARY" for r in c_recurring))
 
-# ---------------------------------------------------------------- C. agent
+# ---------------------------------------------------------------- B3. fees + creep
+section("B3. bank fees + price creep")
+fees = detect_fees(charges)
+fee_by_cat = {f["category"]: f for f in fees}
+check("3 fee categories found (overdraft/atm/fx)", len(fees) == 3,
+      f"got {[f['category'] for f in fees]}")
+check("overdraft: 3x, $105.00, avoidable, annualized 430.38",
+      fee_by_cat.get("overdraft", {}).get("count") == 3
+      and fee_by_cat.get("overdraft", {}).get("total") == 105.0
+      and fee_by_cat.get("overdraft", {}).get("avoidable") is True
+      and abs(fee_by_cat.get("overdraft", {}).get("annualized", 0) - 430.38) < 0.01)
+check("atm: single occurrence is NOT extrapolated to a year",
+      fee_by_cat.get("atm", {}).get("annualized") == 3.5)
+check("fx fee is informational, not avoidable",
+      fee_by_cat.get("fx", {}).get("avoidable") is False)
+check("fee merchants are not subscriptions",
+      not any(k in by_merchant for k in ("OVERDRAFT", "ATM", "FOREIGN")))
+check("every fee finding carries evidence",
+      all(f["evidence"] and all("line" in e for e in f["evidence"]) for f in fees))
+
+creeps = detect_creep(charges)
+check("1 creep found (CLOUD SYNC)", len(creeps) == 1,
+      f"got {[c['merchant_key'] for c in creeps]}")
+if creeps:
+    c0 = creeps[0]
+    check("creep: 12.00 -> 13.99 in 4 sub-5% steps (+16.6%)",
+          c0["from_amount"] == 12.0 and c0["to_amount"] == 13.99
+          and c0["step_count"] == 4 and c0["total_pct"] == 16.6)
+    check("creep annual delta > 0 and evidence cited",
+          c0["annual_delta"] > 0 and len(c0["evidence"]) >= 2)
+
+# negatives
+check("clean: no fees", detect_fees(c_charges) == [])
+check("clean: no creep", detect_creep(c_charges) == [])
+check("a >=5% jump is a hike, not creep (NETFLIX not in creep)",
+      not any(c["merchant_key"] == "NETFLIX" for c in creeps))
+flat = parse_statement(
+    "date,description,amount\n"
+    + "".join(f"2026-{m:02d}-03,FLAT SERVICE,-10.00\n" for m in range(1, 8))
+)
+check("flat merchant -> no creep", detect_creep(flat.charges()) == [])
+dip = parse_statement(
+    "date,description,amount\n"
+    "2026-01-03,DRIP SERVICE,-10.00\n2026-02-03,DRIP SERVICE,-10.49\n"
+    "2026-03-03,DRIP SERVICE,-10.99\n2026-04-03,DRIP SERVICE,-9.99\n"
+    "2026-05-03,DRIP SERVICE,-11.49\n"
+)
+check("price dipped mid-sequence -> not a creep", detect_creep(dip.charges()) == [])
+single = parse_statement(
+    "date,description,amount\n"
+    "2026-01-03,ONCE SERVICE,-10.00\n2026-02-03,ONCE SERVICE,-10.49\n"
+)
+check("two charges, one step -> below min_levels", detect_creep(single.charges()) == [])
+check("risk formula v2: 1 avoidable fee category = 6",
+      risk_score([], [], [], fees=[{"avoidable": True}])["score"] == 6)
+check("risk formula v2: informational fee adds nothing",
+      risk_score([], [], [], fees=[{"avoidable": False}])["score"] == 0)
+
+# ------------------------------------------------------------------ C. agent
 section("C. agent loop")
 audit = audit_statement(MESSY)
 r = audit["receipt"]
-check("monthly total 161.27", abs(audit["monthly_total"] - 161.27) < 0.01,
+check("monthly total 175.26", abs(audit["monthly_total"] - 175.26) < 0.01,
       f"got {audit['monthly_total']}")
 check("recoverable now 24.50", audit["recoverable_now"] == 24.5)
-check("potential annual savings 48.00",
-      abs(audit["potential_annual_savings"] - 48.0) < 0.01,
+check("potential annual savings 505.69",
+      abs(audit["potential_annual_savings"] - 505.69) < 0.01,
       f"got {audit['potential_annual_savings']}")
-check("risk score 67 HIGH",
-      audit["risk"]["score"] == 67 and audit["risk"]["grade"] == "HIGH",
+check("risk score 79 CRITICAL",
+      audit["risk"]["score"] == 79 and audit["risk"]["grade"] == "CRITICAL",
       f"got {audit['risk']}")
 check("trace has 6 stages in order",
       [t["stage"] for t in audit["trace"]]
@@ -242,13 +302,14 @@ check("trace has 6 stages in order",
 check("trace stages carry ms timing", all("ms" in t for t in audit["trace"]))
 check("receipt has all sections",
       all(k in r for k in ["summary", "risk", "subscriptions", "price_hikes",
-                           "duplicates", "trials", "savings_plan", "explanation"]))
+                           "duplicates", "trials", "fees", "creep",
+                           "savings_plan", "explanation"]))
 check("receipt input records skipped rows", r["input"]["rows_skipped"] == 1)
 check("savings plan ordered by priority",
       [a["priority"] for a in r["savings_plan"]["actions"]]
       == sorted(a["priority"] for a in r["savings_plan"]["actions"]))
-check("plan duplicate dispute is first action",
-      r["savings_plan"]["actions"][0]["action"] == "dispute_duplicate")
+check("plan leads with the biggest avoidable leak (fees)",
+      r["savings_plan"]["actions"][0]["action"] == "stop_avoidable_fees")
 check("explanation is non-empty and cites offline",
       len(audit["explanation"]) > 40 and "locally" in audit["explanation"])
 
@@ -313,8 +374,8 @@ check("mcp: every tool has inputSchema with required statement",
       all(t["inputSchema"].get("required") == ["statement"] for t in tools))
 risk_resp = by_id.get(3, {}).get("result", {})
 risk_payload = json.loads(risk_resp["content"][0]["text"])
-check("mcp: risk_score tool returns 67 HIGH",
-      risk_payload["score"] == 67 and risk_payload["grade"] == "HIGH")
+check("mcp: risk_score tool returns 79 CRITICAL",
+      risk_payload["score"] == 79 and risk_payload["grade"] == "CRITICAL")
 audit_resp = by_id.get(4, {}).get("result", {})
 audit_payload = json.loads(audit_resp["content"][0]["text"])
 check("mcp: audit_statement returns receipt with 3 subscriptions",
@@ -339,7 +400,7 @@ cli = runpy(["-m", "auditpilot", "audit", "examples/statement_messy.csv", "--jso
 check("cli audit --json exits 0", cli.returncode == 0, cli.stderr[-300:])
 try:
     payload = json.loads(cli.stdout)
-    ok = payload["summary"]["monthly_total"] == 161.27
+    ok = payload["summary"]["monthly_total"] == 175.26
 except Exception as exc:  # noqa: BLE001
     ok = False
     print("   ", exc)
@@ -407,7 +468,7 @@ try:
             getattr(c, "text", "") for c in (result.content or [])
         )
         check("gradio mcp: call returns the audit receipt",
-              "161.27" in blob or "monthly_total" in blob, blob[:120])
+              "175.26" in blob or "monthly_total" in blob, blob[:120])
 except Exception as exc:  # noqa: BLE001
     check(f"gradio mcp integration could not run ({exc}) — skipped", True)
 
