@@ -1,4 +1,5 @@
-"""Detectors: recurring charges, price changes, duplicates, trial conversions.
+"""Detectors: recurring charges, price changes, duplicates, trial conversions,
+bank/processing fees, and gradual price creep.
 
 Every detector returns findings as plain dicts with an ``evidence`` list
 (source line numbers + raw rows), so no finding is ever unsourced.
@@ -63,6 +64,8 @@ def detect_recurring(charges: List[Txn], min_count: int = 3) -> List[dict]:
     for key, txs in _group_by_merchant(charges).items():
         if len(txs) < min_count and not (len(txs) >= 2 and _annual_only(txs)):
             continue
+        if _is_fee_merchant(txs[0].description):
+            continue  # fees are leakage, not subscriptions — see detect_fees
         intervals = [(txs[i + 1].date - txs[i].date).days for i in range(len(txs) - 1)]
         if not intervals:
             continue
@@ -260,4 +263,161 @@ def detect_trials(charges: List[Txn], window_days: int = 45) -> List[dict]:
                 "confidence": "CAUTION",
                 "evidence": [first.as_evidence(), rest[0].as_evidence()],
             })
+    return findings
+
+
+# --------------------------------------------------------------------------
+# 5. bank / processing fees (pure leakage — money out, no service received)
+# --------------------------------------------------------------------------
+
+# category -> (keywords matched against the uppercased description, avoidable?)
+# "avoidable" = the customer can usually stop paying it (overdraft, ATM
+# choice, paper statements). Foreign-transaction fees are informational:
+# they are the price of a choice, not a mistake.
+FEE_CATEGORIES = [
+    ("overdraft", (["OVERDRAFT", "NSF", "INSUFFICIENT FUNDS", "RETURNED ITEM"], True)),
+    ("late_payment", (["LATE FEE", "LATE PAYMENT", "PAST DUE FEE"], True)),
+    ("atm", (["ATM FEE", "OUT-OF-NETWORK", "OUT OF NETWORK"], True)),
+    ("maintenance", (["MAINTENANCE FEE", "MONTHLY FEE", "SERVICE CHARGE",
+                      "ACCOUNT FEE"], True)),
+    ("fx", (["FOREIGN TRANSACTION FEE", "FX FEE", "CURRENCY CONVERSION",
+             "INTL TRANSACTION FEE"], False)),
+    ("paper_statement", (["PAPER STATEMENT", "STATEMENT FEE"], True)),
+    ("inactivity", (["INACTIVITY FEE", "DORMANT ACCOUNT"], True)),
+]
+
+
+def _fee_category(description: str):
+    up = description.upper()
+    for cat, (keywords, avoidable) in FEE_CATEGORIES:
+        if any(k in up for k in keywords):
+            return cat, avoidable
+    return None, False
+
+
+def _is_fee_merchant(description: str) -> bool:
+    return _fee_category(description)[0] is not None
+
+
+def detect_fees(charges: List[Txn]) -> List[dict]:
+    """Aggregate fee-type charges by category.
+
+    Fees are the one leakage class with no service on the other side of the
+    ledger: every dollar is recoverable only in the future tense. The
+    detector reports the total per category, whether it is avoidable, and
+    how often it hit — a single maintenance fee may be the account's terms,
+    three overdrafts in four months is a behaviour.
+    """
+    groups: Dict[str, List[Txn]] = {}
+    avoidable_of: Dict[str, bool] = {}
+    for t in charges:
+        cat, avoidable = _fee_category(t.description)
+        if cat is None:
+            continue
+        groups.setdefault(cat, []).append(t)
+        avoidable_of[cat] = avoidable
+    findings = []
+    for cat, txs in groups.items():
+        txs.sort(key=lambda t: (t.date, t.line_no))
+        total = round(sum(_mag(t) for t in txs), 2)
+        span_days = max(1, (txs[-1].date - txs[0].date).days)
+        months = max(1.0, span_days / 30.4)
+        # annualize only repeated fees: extrapolating a single occurrence to a
+        # yearly rate invents a frequency the statement never showed
+        annualized = round(total * 12.0 / months, 2) if len(txs) >= 2 else total
+        findings.append({
+            "type": "FEE_LEAKAGE",
+            "category": cat,
+            "merchant": display_name(txs[-1].description),
+            "merchant_key": merchant_key(txs[-1].description),
+            "count": len(txs),
+            "total": total,
+            "avoidable": avoidable_of[cat],
+            "annualized": annualized,
+            "first_seen": txs[0].date.isoformat(),
+            "last_seen": txs[-1].date.isoformat(),
+            "confidence": "HIGH" if len(txs) >= 2 else "CAUTION",
+            "evidence": [t.as_evidence() for t in txs],
+        })
+    findings.sort(key=lambda f: -f["total"])
+    return findings
+
+
+# --------------------------------------------------------------------------
+# 6. price creep (death by a thousand cuts — below the hike detector's floor)
+# --------------------------------------------------------------------------
+
+def detect_creep(
+    charges: List[Txn],
+    min_charges: int = 4,
+    min_levels: int = 3,
+    max_step_pct: float = 5.0,
+    min_total_pct: float = 4.0,
+) -> List[dict]:
+    """Gradual price creep: many small steps, each below the price-change
+    detector's 5% floor, that add up.
+
+    A merchant going 12.00 -> 12.49 -> 12.99 -> 13.49 never trips a "price
+    hike" alert (each step is <5%) but has silently raised its price 12.4%.
+    This is the pattern subscription accountants actually see, and it is
+    invisible to threshold-based alerting by construction.
+    """
+    findings = []
+    for key, txs in _group_by_merchant(charges).items():
+        if len(txs) < min_charges or _is_fee_merchant(txs[0].description):
+            continue
+        amounts = [round(_mag(t), 2) for t in txs]
+        levels = _cluster_levels(amounts)
+        if len(levels) < min_levels:
+            continue
+        seq = []
+        for a in amounts:
+            for i, lv in enumerate(levels):
+                if abs(a - lv) <= max(0.02, 0.03 * max(abs(lv), abs(a))):
+                    seq.append(i)
+                    break
+        # every step must be an increase in VALUE (a dip means it is not a
+        # creep — compare amounts, not level indices: a new lower level still
+        # gets a fresh index and would sneak through an index comparison)
+        if any(levels[seq[i + 1]] < levels[seq[i]] for i in range(len(seq) - 1)):
+            continue
+        steps = []
+        for i in range(len(seq) - 1):
+            if seq[i] == seq[i + 1]:
+                continue
+            old_lv, new_lv = levels[seq[i]], levels[seq[i + 1]]
+            pct = 100.0 * (new_lv - old_lv) / max(old_lv, 0.01)
+            if pct >= max_step_pct or pct <= 0:
+                continue  # a >=5% jump is a price change, not creep
+            steps.append({
+                "on": txs[i + 1].date.isoformat(),
+                "from_amount": old_lv,
+                "to_amount": new_lv,
+                "pct": round(pct, 1),
+                "evidence": [txs[i].as_evidence(), txs[i + 1].as_evidence()],
+            })
+        if len(steps) < min_levels - 1:
+            continue
+        first_lv, last_lv = levels[seq[0]], levels[seq[-1]]
+        total_pct = 100.0 * (last_lv - first_lv) / max(first_lv, 0.01)
+        if total_pct < min_total_pct:
+            continue
+        intervals = [(txs[i + 1].date - txs[i].date).days for i in range(len(txs) - 1)]
+        per_year = 365.0 / max(1.0, _median(intervals))
+        findings.append({
+            "type": "PRICE_CREEP",
+            "merchant": display_name(txs[-1].description),
+            "merchant_key": key,
+            "from_amount": first_lv,
+            "to_amount": last_lv,
+            "steps": steps,
+            "step_count": len(steps),
+            "total_pct": round(total_pct, 1),
+            "annual_delta": round((last_lv - first_lv) * per_year, 2),
+            "first_seen": txs[0].date.isoformat(),
+            "last_seen": txs[-1].date.isoformat(),
+            "evidence": ([txs[0].as_evidence(), txs[-1].as_evidence()]
+                         + [e for s in steps for e in s["evidence"]][:6]),
+        })
+    findings.sort(key=lambda f: -f["annual_delta"])
     return findings
