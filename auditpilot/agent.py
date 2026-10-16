@@ -15,7 +15,9 @@ from typing import List, Optional
 
 from .statement import ParseResult, Txn, parse_statement
 from .detectors import (
+    detect_creep,
     detect_duplicates,
+    detect_fees,
     detect_price_changes,
     detect_recurring,
     detect_trials,
@@ -41,11 +43,15 @@ def build_savings_plan(
     hikes: List[dict],
     duplicates: List[dict],
     trials: List[dict],
+    fees: Optional[List[dict]] = None,
+    creep: Optional[List[dict]] = None,
 ) -> dict:
     """Turn findings into an ordered, grounded action list.
 
     Only actions derived from findings are proposed — no invented advice.
     """
+    fees = fees or []
+    creep = creep or []
     actions = []
     recoverable_now = 0.0
     potential_annual = 0.0
@@ -63,6 +69,42 @@ def build_savings_plan(
                 f"within {d['window_days']} day(s) — ask the issuer for a chargeback."
             ),
             "evidence": d["evidence"],
+        })
+    for f in fees:
+        if not f["avoidable"]:
+            continue
+        potential_annual += f["annualized"]
+        if f["category"] in ("overdraft", "late_payment"):
+            hint = "the balance ran dry — fix the buffer, not the fee"
+        else:
+            hint = "usually avoidable with one settings change"
+        actions.append({
+            "action": "stop_avoidable_fees",
+            "merchant": f["merchant"],
+            "save_now": 0.0,
+            "save_annual": f["annualized"],
+            "priority": 1,
+            "detail": (
+                f"{f['count']}x {f['category'].replace('_', ' ')} fee "
+                f"(${f['total']:.2f} total, ~${f['annualized']:.2f}/yr at this rate) — {hint}."
+            ),
+            "evidence": f["evidence"],
+        })
+    for c in creep:
+        potential_annual += c["annual_delta"]
+        actions.append({
+            "action": "review_price_creep",
+            "merchant": c["merchant"],
+            "save_now": 0.0,
+            "save_annual": c["annual_delta"],
+            "priority": 2,
+            "detail": (
+                f"{c['merchant']} crept from ${c['from_amount']:.2f} to "
+                f"${c['to_amount']:.2f} over {c['step_count']} sub-5% steps "
+                f"(+{c['total_pct']}%) — never alerted, now ~${c['annual_delta']:.2f}/yr "
+                f"more than {c['first_seen'][:4]}."
+            ),
+            "evidence": c["evidence"],
         })
     for t in trials:
         actions.append({
@@ -121,13 +163,22 @@ def build_savings_plan(
 
 
 def risk_score(
-    duplicates: List[dict], hikes: List[dict], trials: List[dict]
+    duplicates: List[dict], hikes: List[dict], trials: List[dict],
+    fees: Optional[List[dict]] = None,
 ) -> dict:
     """Public, reproducible leakage score.
 
-    score = min(100, 35*duplicates + 12*price_changes + 8*trial_conversions)
+    score = min(100, 35*duplicates + 12*price_changes + 8*trial_conversions
+                    + 6*avoidable_fee_categories)
+
+    Fees enter as categories (not dollars): three overdrafts and one ATM fee
+    are one behaviour problem, not four — and the score must stay comparable
+    across statements of different sizes.
     """
-    score = min(100, 35 * len(duplicates) + 12 * len(hikes) + 8 * len(trials))
+    fees = fees or []
+    fee_cats = len([f for f in fees if f.get("avoidable")])
+    score = min(100, 35 * len(duplicates) + 12 * len(hikes)
+                + 8 * len(trials) + 6 * fee_cats)
     if score <= 20:
         grade = "LOW"
     elif score <= 50:
@@ -139,7 +190,8 @@ def risk_score(
     return {
         "score": score,
         "grade": grade,
-        "formula": "min(100, 35*duplicates + 12*price_changes + 8*trial_conversions)",
+        "formula": ("min(100, 35*duplicates + 12*price_changes + "
+                    "8*trial_conversions + 6*avoidable_fee_categories)"),
     }
 
 
@@ -174,20 +226,26 @@ def audit_statement(text: str, min_count: int = 3) -> dict:
     hikes = detect_price_changes(charges)
     duplicates = detect_duplicates(charges)
     trials = detect_trials(charges)
+    fees = detect_fees(charges)
+    creep = detect_creep(charges)
     trace.append(_stage(
         "DETECT",
         f"{len(recurring)} recurring, {len(hikes)} price changes, "
-        f"{len(duplicates)} duplicates, {len(trials)} trial conversions",
+        f"{len(duplicates)} duplicates, {len(trials)} trial conversions, "
+        f"{len(fees)} fee categories, {len(creep)} price creeps",
         t,
         recurring=len(recurring),
         price_changes=len(hikes),
         duplicates=len(duplicates),
         trials=len(trials),
+        fees=len(fees),
+        creeps=len(creep),
     ))
 
     # PLAN ---------------------------------------------------------------
     t = time.perf_counter()
-    plan = build_savings_plan(recurring, hikes, duplicates, trials)
+    plan = build_savings_plan(recurring, hikes, duplicates, trials,
+                              fees=fees, creep=creep)
     trace.append(_stage(
         "PLAN",
         f"{len(plan['actions'])} actions, ${plan['recoverable_now']:.2f} recoverable now, "
@@ -197,12 +255,14 @@ def audit_statement(text: str, min_count: int = 3) -> dict:
 
     # EXPLAIN ------------------------------------------------------------
     t = time.perf_counter()
-    risk = risk_score(duplicates, hikes, trials)
+    risk = risk_score(duplicates, hikes, trials, fees=fees)
     summary = {
         "subscriptions": recurring,
         "price_hikes": hikes,
         "duplicates": duplicates,
         "trials": trials,
+        "fees": fees,
+        "creep": creep,
         "monthly_total": plan["monthly_total"],
     }
     explanation, brain_name = explain_findings(summary)
@@ -224,6 +284,8 @@ def audit_statement(text: str, min_count: int = 3) -> dict:
         "price_hikes": hikes,
         "duplicates": duplicates,
         "trials": trials,
+        "fees": fees,
+        "creep": creep,
         "monthly_total": plan["monthly_total"],
         "recoverable_now": plan["recoverable_now"],
         "potential_annual_savings": plan["potential_annual_savings"],
