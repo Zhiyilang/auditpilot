@@ -5,6 +5,7 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
+    healthCheckPath: /healthz
     envVars:
       - key: PORT
         value: "10000"
@@ -20,6 +21,7 @@ services:
     plan: free
     buildCommand: ""
     startCommand: python china_ai_service.py
+    healthCheckPath: /healthz
     envVars:
       - key: PORT
         value: "10000"
