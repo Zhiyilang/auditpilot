@@ -43,6 +43,13 @@ from urllib.parse import urlparse
 from auditpilot.agentguard import DEFAULT_POLICY, GuardPolicy, guard_messages, guard_text
 
 MODEL_ID = os.environ.get("AGENTGUARD_MODEL", "agentguard-1.0")
+
+# Full category vocabulary (agentguard.py Finding.category docstring):
+# injection|jailbreak|smuggling|tool_coercion|exfiltration|prompt_echo|privilege|pii
+MODERATION_CATEGORIES = (
+    "injection", "jailbreak", "smuggling", "tool_coercion",
+    "exfiltration", "prompt_echo", "privilege", "pii",
+)
 STYLE = os.environ.get("AGENTGUARD_STYLE", "hybrid").lower()
 MAX_BODY = 1_000_000  # 1 MB hard cap; the competition sends short prompts
 POLICY = GuardPolicy()
@@ -221,9 +228,12 @@ class Handler(BaseHTTPRequestHandler):
                 "id": "modr-" + uuid.uuid4().hex[:24],
                 "model": MODEL_ID,
                 "results": [{
-                    "flagged": verdict.decision == "refuse",
-                    "categories": {c: (c in cats) for c in cats},
-                    "category_scores": {c: (1.0 if c in cats else 0.0) for c in cats},
+                    # OpenAI moderations contract: flagged MUST be true whenever
+                    # any category is true. PII findings produce decision=allow
+                    # (we mask rather than refuse) but still count as flagged.
+                    "flagged": bool(cats),
+                    "categories": {c: (c in cats) for c in MODERATION_CATEGORIES},
+                    "category_scores": {c: (1.0 if c in cats else 0.0) for c in MODERATION_CATEGORIES},
                 }],
             })
             return
