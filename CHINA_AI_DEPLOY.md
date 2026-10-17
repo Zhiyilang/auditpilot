@@ -3,6 +3,7 @@
 > 配套赛事：第七届中国人工智能大赛 · 智能体安全防护挑战赛（https://ai.xm.gov.cn/ ）
 > 对应官方四维评分：**权限访问控制 / 提示词注入防护 / 隐私信息保护 / 误报率**
 > 本地状态（2026-10-17 实测）：`python test_agentguard.py` → **47/47 通过**（含敌意 `LC_ALL=C` 无 `PYTHONUTF8`）；原 `eval.py` → 100/100 无回归；单条判定延迟 **0.05–0.25ms**（赛制上限 60s，余量 >10 万倍）。
+> **端到端部署核验（2026-10-18 00:30 实测，提交日零阻塞）**：在**等价 Render 上下文**（`python china_ai_service.py`，脚本目录在 sys.path[0]、无 PYTHONPATH）真起服务 → `/healthz` 返回 200、`Bearer` 鉴权 `/v1/models` 正常回 `agentguard-1.0`、`test_chinaai_service.py` **11/11 全绿**。嵌套 `auditpilot/auditpilot/agentguard.py` 包在脚本目录上下文中可解析（注：`-I` 隔离模式会剔 cwd 致 import 失败，但 Render 正常运行不加 `-I`，故无碍）。`render.yaml` 的 `auditpilot-guard` 服务（`generateValue` 凭证 + `healthCheckPath: /healthz`）配置正确。
 
 ---
 
@@ -122,7 +123,7 @@ curl -s -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \
 |---|---|
 | `auditpilot/agentguard.py` | 检测库：27 条规则 + PII 校验 + 教育语境降级 + 决策引擎 |
 | `china_ai_service.py` | HTTP 服务：三种合同 + Bearer 门禁 + 审计日志 |
-| `test_agentguard.py` | 44 条离线断言（含服务层真实 HTTP 测试） |
+| `test_agentguard.py` | 47 条断言（库层检测 + 服务层 HTTP 合同；部署路径回归另见 `test_chinaai_service.py` 11/11） |
 | `render.yaml` | 双服务 blueprint（`auditpilot-guard` 即本赛服务） |
 | `CHINA_AI_COMP_ACTION_CARD.md` | 赛事行动卡（报名/资格/赛程） |
 
