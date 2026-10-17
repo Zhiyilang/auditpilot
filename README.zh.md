@@ -79,7 +79,7 @@ HTML 报告卫生（无 script 标签、无外部资源）、经**真实子进�
 构建——该赛评分四维：提示词注入防护 / 权限访问控制 / 隐私信息保护 / 误报率。
 
 ```bash
-python test_agentguard.py                                  # 47/47 离线通过，含服务层
+python test_agentguard.py                                  # 68/68 离线通过，含服务层
 AGENTGUARD_TOKEN=demo python china_ai_service.py           # OpenAI 兼容网关，读 $PORT
 ```
 
@@ -93,7 +93,7 @@ AGENTGUARD_TOKEN=demo python china_ai_service.py           # OpenAI 兼容网关
 - HTTP 合同：`POST /v1/chat/completions`（OpenAI 结构 + `guard` 字段）、
   `POST /v1/guard`（判定 JSON）、`POST /v1/moderations`（OpenAI 结构）、
   `GET /v1/models`、`GET /healthz`。访问控制用 `AGENTGUARD_TOKEN` Bearer 门禁。
-- 实测：47/47 断言通过（`LC_ALL=C` 无 `PYTHONUTF8` 亦通过）；单条判定
+- 实测：68/68 断言通过（`LC_ALL=C` 无 `PYTHONUTF8` 亦通过）；单条判定
   0.05–0.25ms，对比赛制 60s/次上限有十万倍余量。
 
 部署与合同适配 runbook：**`CHINA_AI_DEPLOY.md`**；Render blueprint 已把网关

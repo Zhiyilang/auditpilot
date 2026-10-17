@@ -162,7 +162,7 @@ prompt-injection defense, access control, privacy protection, and the
 false-positive rate on benign traffic.
 
 ```bash
-python test_agentguard.py                                  # 47/47 offline, incl. service layer
+python test_agentguard.py                                  # 68/68 offline, incl. service layer
 AGENTGUARD_TOKEN=demo python china_ai_service.py           # OpenAI-compatible gateway, reads $PORT
 ```
 
@@ -180,7 +180,7 @@ AGENTGUARD_TOKEN=demo python china_ai_service.py           # OpenAI-compatible g
   `POST /v1/guard` (verdict JSON), `POST /v1/moderations` (OpenAI shape),
   `GET /v1/models`, `GET /healthz`. Bearer-token access control via
   `AGENTGUARD_TOKEN`.
-- Measured: 47/47 assertions green (also under `LC_ALL=C` without `PYTHONUTF8`);
+- Measured: 68/68 assertions green (also under `LC_ALL=C` without `PYTHONUTF8`);
   verdict latency 0.05–0.25 ms against the competition's 60 s-per-call budget.
 
 Deployment and contract-adaptation runbook: **`CHINA_AI_DEPLOY.md`**; the Render
