@@ -14,3 +14,19 @@ services:
         sync: false
       - key: AUDITPILOT_LLM_MODEL
         sync: false
+  - type: web
+    name: auditpilot-guard
+    runtime: python
+    plan: free
+    buildCommand: ""
+    startCommand: python china_ai_service.py
+    envVars:
+      - key: PORT
+        value: "10000"
+      # Access credential for the China AI Competition submission
+      # (智能体安全防护挑战赛). Render generates a random value; read it in
+      # the dashboard (Environment tab) and submit it as the 访问凭证.
+      - key: AGENTGUARD_TOKEN
+        generateValue: true
+      - key: AGENTGUARD_STYLE
+        value: "hybrid"

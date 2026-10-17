@@ -141,7 +141,8 @@ Cursor, or any agent at either one. See `DEPLOY.md`.
 ## Self-verification
 
 ```bash
-python eval.py        # 100 assertions
+python eval.py             # 100 assertions
+python test_agentguard.py  # 44 assertions (AgentGuard safety layer, incl. real HTTP)
 ```
 
 Covers: parsing (CSV / headerless / debit-credit / pasted / BOM / empty), every
@@ -151,6 +152,39 @@ price that dips mid-sequence is *not* a creep, a single fee is *not* extrapolate
 to a yearly rate), the agent loop, receipt structure, HTML report hygiene (no
 script tags, no external assets), the stdio MCP server via a **real subprocess**
 (initialize → tools/list → tools/call → unknown tool → malformed JSON), and the CLI.
+
+## AgentGuard — the agent-safety layer (7th China AI Competition)
+
+A second, independent engine lives in this repo: `auditpilot/agentguard.py` +
+`china_ai_service.py` form a **deterministic safety gateway** built for the
+智能体安全防护挑战赛 (https://ai.xm.gov.cn/), whose rubric scores
+prompt-injection defense, access control, privacy protection, and the
+false-positive rate on benign traffic.
+
+```bash
+python test_agentguard.py                                  # 44/44 offline, incl. service layer
+AGENTGUARD_TOKEN=demo python china_ai_service.py           # OpenAI-compatible gateway, reads $PORT
+```
+
+- 27 bilingual rules (instruction override, jailbreak/DAN, fake system tags,
+  tool coercion, exfiltration, prompt echo, credential access) — every finding
+  carries its rule id and matched span.
+- PII detection with real checksums: CN mobile, 18-digit ID (GB11643 check
+  digit), bank card (Luhn), email, landline — masked in responses and logs.
+- False-positive calibration encoded as tests: attack patterns quoted in
+  educational/defensive framing are recorded but downgraded; negation contexts,
+  marketing copy, QR-phishing *questions*, and non-Latin scripts all pass.
+  Hard rule: exfiltration / tool-coercion / credential / smuggling findings are
+  **never** downgraded by framing.
+- HTTP contracts: `POST /v1/chat/completions` (OpenAI shape + a `guard` field),
+  `POST /v1/guard` (verdict JSON), `POST /v1/moderations` (OpenAI shape),
+  `GET /v1/models`, `GET /healthz`. Bearer-token access control via
+  `AGENTGUARD_TOKEN`.
+- Measured: 44/44 assertions green (also under `LC_ALL=C` without `PYTHONUTF8`);
+  verdict latency 0.05–0.25 ms against the competition's 60 s-per-call budget.
+
+Deployment and contract-adaptation runbook: **`CHINA_AI_DEPLOY.md`**; the Render
+blueprint ships the gateway as its own service (`auditpilot-guard`).
 
 ## Project layout
 
@@ -164,7 +198,9 @@ auditpilot/
   mcp_server.py    zero-dependency stdio MCP server (spec 2025-11-25)
   cli.py           audit / demo / mcp subcommands
 app.py             Gradio 6 web app (also an MCP server via launch(mcp_server=True))
+china_ai_service.py  AgentGuard HTTP gateway (OpenAI-compatible, reads $PORT)
 eval.py            100-assertion suite
+test_agentguard.py 44-assertion AgentGuard suite (library + real HTTP)
 examples/          messy (planted problems) + clean (negative control) statements
 ```
 
