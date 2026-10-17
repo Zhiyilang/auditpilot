@@ -19,6 +19,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Engine assertions (zero dependencies)
         run: python eval.py
+      - name: AgentGuard detection layer (zero dependencies)
+        run: python test_agentguard.py
+      - name: China AI gateway deploy-path regression (child process, random PORT)
+        run: python test_chinaai_service.py
       - name: CLI smoke
         run: python -m auditpilot audit examples/statement_clean.csv
       - name: Gradio app import (main branch, ubuntu only)
