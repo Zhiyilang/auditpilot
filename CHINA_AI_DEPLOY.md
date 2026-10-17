@@ -26,8 +26,11 @@
 ```bash
 cd auditpilot
 python test_agentguard.py                      # 47/47，exit 0
+python test_chinaai_service.py                 # 11/11，exit 0 —— 部署路径回归（子进程+随机端口）
 AGENTGUARD_TOKEN=demo-token python china_ai_service.py   # 起在 8077
 ```
+
+`test_chinaai_service.py` 就是「提交前最后一次自检」：**子进程起真服务 + 随机端口 + 三个 HTTP 合同全测 + Bearer 门禁**（正常与 `LC_ALL=C` 敌意 locale 均 11/11，已接进 CI）。部署前/后各跑一次，绿了再交服务地址。
 
 另开一个终端：
 
