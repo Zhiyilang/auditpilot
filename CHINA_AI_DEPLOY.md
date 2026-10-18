@@ -137,7 +137,7 @@ curl -s -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \
 |---|---|
 | `auditpilot/agentguard.py` | 检测库：27 条规则 + PII 校验 + 教育语境降级 + 决策引擎 |
 | `china_ai_service.py` | HTTP 服务：三种合同 + Bearer 门禁 + 审计日志 |
-| `test_agentguard.py` | 47 条断言（库层检测 + 服务层 HTTP 合同；部署路径回归另见 `test_chinaai_service.py` 11/11） |
+| `test_agentguard.py` | 68 条断言（库层检测 + 服务层 HTTP 合同；部署路径回归另见 `test_chinaai_service.py` 11/11） |
 | `render.yaml` | 双服务 blueprint（`auditpilot-guard` 即本赛服务） |
 | `CHINA_AI_COMP_ACTION_CARD.md` | 赛事行动卡（报名/资格/赛程） |
 
