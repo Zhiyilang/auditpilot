@@ -142,7 +142,7 @@ Cursor, or any agent at either one. See `DEPLOY.md`.
 
 ```bash
 python eval.py             # 100 assertions
-python test_agentguard.py  # 47 assertions (AgentGuard safety layer, incl. real HTTP)
+python test_agentguard.py  # 68 assertions (AgentGuard safety layer, incl. real HTTP)
 ```
 
 Covers: parsing (CSV / headerless / debit-credit / pasted / BOM / empty), every
